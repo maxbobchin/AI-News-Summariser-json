@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template, flash, redirect, url_for  # Import flash
+from flask import Flask, request, render_template, flash, redirect, url_for, jsonify  # Import flash
 import nltk
 from textblob import TextBlob
 from newspaper import Article
@@ -6,11 +6,17 @@ from datetime import datetime
 from urllib.parse import urlparse
 import validators
 import requests
+from functools import wraps
+import os
 
 # nltk.download('punkt') # Downloading in the Dockerfile
 # nltk.download('punkt_tab') # Downloading in the Dockerfile
 
 app = Flask(__name__)
+app.secret_key = 'your_secret_key'
+
+# Add this line - replace with your desired token
+API_TOKEN = os.getenv('API_TOKEN')
 
 def get_website_name(url):
     # Extract the website name from the URL
@@ -20,7 +26,32 @@ def get_website_name(url):
         domain = domain[4:]
     return domain
 
+def require_token(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        auth_header = request.headers.get('Authorization')
+        
+        if not auth_header:
+            return jsonify({'error': 'No Authorization header'}), 401
+            
+        try:
+            # Check if header is in correct format
+            auth_type, token = auth_header.split()
+            if auth_type.lower() != 'bearer':
+                return jsonify({'error': 'Invalid authorization type'}), 401
+                
+            # Verify token
+            if token != API_TOKEN:
+                return jsonify({'error': 'Invalid token'}), 401
+                
+        except ValueError:
+            return jsonify({'error': 'Invalid Authorization header format'}), 401
+            
+        return f(*args, **kwargs)
+    return decorated_function
+
 @app.route('/', methods=['GET', 'POST'])
+@require_token
 def index():
     if request.method == 'POST':
         url = request.form['url']
@@ -96,8 +127,6 @@ def index():
     if request.headers.get('Accept') == 'application/json':
         return {'message': 'Please send a POST request with a URL'}
     return render_template('index.html')
-
-app.secret_key = 'your_secret_key'
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
